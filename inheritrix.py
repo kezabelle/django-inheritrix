@@ -69,27 +69,35 @@ class InheritingQuerySet(QuerySet):
 
     def __init__(self, *args, **kwargs):
         super(InheritingQuerySet, self).__init__(*args, **kwargs)
-        self._our_prefetches = set()
-        self._our_joins = set()
+        self._our_joins = []
 
     def _clone(self, *args, **kwargs):
         clone = super(InheritingQuerySet, self)._clone(*args, **kwargs)
-        clone._our_prefetches = self._our_prefetches.copy()
-        clone._our_joins = self._our_joins.copy()
+        clone._our_joins = self._our_joins[:]
         return clone
+
+    def select_subclasses(self, *subclasses):
+        # Support the single API call equivalent from model-utils
+        return self.models(*subclasses, include_self=True)
 
     def models(self, *models, **options):
         clone = self._clone()
-        # if models == (None,):
-        #     # remove anything we specified as a prefetch_related argument.
-        #     for our_prefetch in clone._our_prefetches:
-        #         if our_prefetch in clone._prefetch_related_lookups:
-        #             clone._prefetch_related_lookups.remove(our_prefetch)
-        #     # remove anything we specified as a select_related argument if
-        #     # the underlying thing is a dict.
-        #     if clone.query.select_related not in (True, False):
-        #         pass
-        #     return
+        # if at all possible, remove anything *I* added to select_related.
+        # Note: at the moment I have no idea how to unwind the Q objects I put
+        # in, so the joins all still happen. Dumb.
+        if models == (None,):
+            # go in depth first order.
+            # this is nasty.
+            for field in self._our_joins:
+                newlevel = clone.query.select_related
+                for part in field:
+                    if part in newlevel:
+                        previouslevel = newlevel
+                        newlevel = newlevel[part]
+                        if tuple(newlevel.keys()) == ():
+                            del previouslevel[part]
+            clone._our_joins = []
+            return clone
 
         function = partial(discovery_lookup_from_model, root_model=clone.model)
         lookups = tuple(set(function(target_model=model) for model in models))
@@ -101,7 +109,7 @@ class InheritingQuerySet(QuerySet):
         lookups_with_intermediates_flat = set(chain.from_iterable(lookups_with_intermediates))
         # the decision maker
         joins_as_strings = lookups_to_text(lookups=lookups_with_intermediates_flat)
-        clone._our_joins.update(joins_as_strings)
+        clone._our_joins = sorted(lookups_with_intermediates_flat, key=len, reverse=True)
         # we're already in a clone, so play about with it directly.
         clone.query.add_select_related(joins_as_strings)
         # To avoid returning instances without children, we need to do a filter,
@@ -113,8 +121,7 @@ class InheritingQuerySet(QuerySet):
 
     def iterator(self):
         iterator = super(InheritingQuerySet, self).iterator()
-        relations = sorted(self._our_joins, key=len, reverse=True)
-        relations_for_attrgetter = tuple(x.replace(LOOKUP_SEP, '.') for x in relations)
+        relations_for_attrgetter = tuple(x.replace(LOOKUP_SEP, '.') for x in lookups_to_text(self._our_joins))
         attrgetters = tuple(attrgetter(x) for x in relations_for_attrgetter)
         for obj in iterator:
             yield dig_for_obj(obj=obj, attrgetters=attrgetters)

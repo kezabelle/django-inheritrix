@@ -30,3 +30,15 @@ class QueryCounts(TestCase):
 
         with self.assertNumQueries(1):
             tuple(A.polymorphs.models(*models, include_self=True))
+
+    def test_resetting(self):
+        models = (AA, AB, BA, BB, CA, CB, CC)
+
+        with self.assertNumQueries(32):
+            A._default_manager.create()
+            FK._default_manager.create()
+            for m in models:
+                m._default_manager.create()
+
+        with self.assertNumQueries(0):
+            tuple(A.polymorphs.select_related('fk').models(*models, include_self=False).models(None))
