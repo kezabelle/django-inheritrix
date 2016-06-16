@@ -9,6 +9,9 @@ from inheritrix import InheritingManager
 class FK(Model):
     pass
 
+class FK2(Model):
+    pass
+
 
 @python_2_unicode_compatible
 class A(Model):
@@ -46,3 +49,4 @@ class CB(BA):
 
 class CC(BB):
     v3 = IntegerField(default=3)
+    fk2 = ForeignKey(FK2, null=True)

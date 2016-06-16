@@ -1,9 +1,10 @@
-from collections import namedtuple
+from collections import namedtuple, defaultdict
 from functools import partial
 from itertools import chain, product
 from operator import attrgetter, or_, and_
 from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import QuerySet, Manager, Q
+from django.db.models.query import prefetch_related_objects
 from django.db.models.constants import LOOKUP_SEP
 
 
@@ -56,6 +57,22 @@ def lookups_to_text(lookups):
     return tuple(LOOKUP_SEP.join(lookup) for lookup in lookups)
 
 
+def calculate_paths(lookups):
+    # expects tuples like: ('a', 'b', 'c')
+
+    # go from a lookup of ('a', 'b', 'c') to generating all:
+    # (('a',), ('a', 'b'), ('a', 'b', 'c'))
+    lookups_with_intermediates = tuple(generate_relation_combinations(lookup)
+                                       for lookup in lookups)
+    # flatten any duplicates (eg: going through table `a` twice)
+    lookups_with_intermediates_flat = set(chain.from_iterable(lookups_with_intermediates))
+    joins_as_strings = lookups_to_text(lookups=lookups_with_intermediates_flat)
+    result = sorted(lookups_with_intermediates_flat, key=len, reverse=True)
+    returndata =  result, joins_as_strings, lookups_with_intermediates
+    print(returndata)
+    return returndata
+
+
 def dig_for_obj(obj, attrgetters):
     for attrgetter_ in attrgetters:
         try:
@@ -86,36 +103,32 @@ class InheritingQuerySet(QuerySet):
         # Note: at the moment I have no idea how to unwind the Q objects I put
         # in, so the joins all still happen. Dumb.
         if models == (None,):
+            raise ValueError("Cannot unset models() calls")
             # go in depth first order.
             # this is nasty.
-            for field in self._our_joins:
-                newlevel = clone.query.select_related
-                for part in field:
-                    if part in newlevel:
-                        previouslevel = newlevel
-                        newlevel = newlevel[part]
-                        if tuple(newlevel.keys()) == ():
-                            del previouslevel[part]
-            clone._our_joins = []
-            return clone
+            # for field in self._our_joins:
+            #     newlevel = clone.query.select_related
+            #     for part in field:
+            #         if part in newlevel:
+            #             previouslevel = newlevel
+            #             newlevel = newlevel[part]
+            #             if tuple(newlevel.keys()) == ():
+            #                 del previouslevel[part]
+            # clone._our_joins = []
+            # return clone
 
         function = partial(discovery_lookup_from_model, root_model=clone.model)
+        # generate tuples like: ('a', 'b', 'c')
         lookups = tuple(set(function(target_model=model) for model in models))
-        # go from a lookup of ('a', 'b', 'c') to generating all:
-        # (('a',), ('a', 'b'), ('a', 'b', 'c'))
-        lookups_with_intermediates = tuple(generate_relation_combinations(lookup)
-                                           for lookup in lookups)
-        # flatten any duplicates (eg: going through table `a` twice)
-        lookups_with_intermediates_flat = set(chain.from_iterable(lookups_with_intermediates))
         # the decision maker
-        joins_as_strings = lookups_to_text(lookups=lookups_with_intermediates_flat)
-        clone._our_joins = sorted(lookups_with_intermediates_flat, key=len, reverse=True)
+        our_joins, joins_as_strings, all_combinations = calculate_paths(lookups=lookups)
+        clone._our_joins = our_joins
         # we're already in a clone, so play about with it directly.
         clone.query.add_select_related(joins_as_strings)
         # To avoid returning instances without children, we need to do a filter,
         # ensuring the children are isnull=False
         if 'include_self' not in options or options['include_self'] is not True:
-            x = generate_q_filters(lookups=lookups_with_intermediates)
+            x = generate_q_filters(lookups=all_combinations)
             clone.query.add_q(x)
         return clone
 
@@ -125,6 +138,17 @@ class InheritingQuerySet(QuerySet):
         attrgetters = tuple(attrgetter(x) for x in relations_for_attrgetter)
         for obj in iterator:
             yield dig_for_obj(obj=obj, attrgetters=attrgetters)
+    #
+    def _prefetch_related_objects(self):
+        things = defaultdict(list)
+        for thing in self._result_cache:
+            things[thing.__class__].append(thing)
+        get_lookups = partial(discovery_lookup_from_model, root_model=self.model)
+        for klass, instances in things.items():
+            lookups = tuple(set(get_lookups(target_model=klass)))
+            stuff = calculate_paths(lookups=lookups)
+            prefetch_related_objects(instances, self._prefetch_related_lookups)
+        return None
 
 
 InheritingManager = Manager.from_queryset(InheritingQuerySet)
