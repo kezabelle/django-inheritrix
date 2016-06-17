@@ -57,6 +57,12 @@ def lookups_to_text(lookups):
     return tuple(LOOKUP_SEP.join(lookup) for lookup in lookups)
 
 
+def relation_string_for_model(root_model, target_model):
+    lookups = discovery_lookup_from_model(root_model=root_model, target_model=target_model)
+    lookups_as_strings = lookups_to_text([lookups])
+    return lookups_as_strings[0]
+
+
 def calculate_paths(lookups):
     # expects tuples like: ('a', 'b', 'c')
 
@@ -69,7 +75,6 @@ def calculate_paths(lookups):
     joins_as_strings = lookups_to_text(lookups=lookups_with_intermediates_flat)
     result = sorted(lookups_with_intermediates_flat, key=len, reverse=True)
     returndata =  result, joins_as_strings, lookups_with_intermediates
-    print(returndata)
     return returndata
 
 
@@ -143,10 +148,9 @@ class InheritingQuerySet(QuerySet):
         things = defaultdict(list)
         for thing in self._result_cache:
             things[thing.__class__].append(thing)
-        get_lookups = partial(discovery_lookup_from_model, root_model=self.model)
+        get_lookups = partial(relation_string_for_model, root_model=self.model)
         for klass, instances in things.items():
-            lookups = tuple(set(get_lookups(target_model=klass)))
-            stuff = calculate_paths(lookups=lookups)
+            lookups = get_lookups(target_model=klass)
             prefetch_related_objects(instances, self._prefetch_related_lookups)
         return None
 

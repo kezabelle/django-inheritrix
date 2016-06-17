@@ -4,7 +4,8 @@ from __future__ import unicode_literals
 import pytest
 from inheritrix import (discovery_lookup_from_model,
                         walk_from_model_to_root,
-                        InvalidModel, generate_relation_combinations)
+                        InvalidModel, generate_relation_combinations,
+                        lookups_to_text, relation_string_for_model)
 from test_app.models import A, AA, AB, BA, BB, CA, CB, CC
 
 
@@ -78,3 +79,16 @@ def test_great_grandchild(model, expected):
 def test_generate_relation_combinations(indata, expected):
     assert generate_relation_combinations(lookup_parts=indata) == expected
 
+
+@pytest.mark.parametrize('model,expected', [
+    (AA, 'aa'),
+    (AB, 'ab'),
+    (BA, 'aa__ba'),
+    (BB, 'ab__bb'),
+    (CA, 'aa__ba__ca'),
+    (CB, 'aa__ba__cb'),
+    (CC, 'ab__bb__cc'),
+])
+def test_relation_tuples_from_root(model, expected):
+    result = relation_string_for_model(A, model)
+    assert result == expected
