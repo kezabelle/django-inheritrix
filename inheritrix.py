@@ -13,6 +13,12 @@ class InvalidModel(TypeError):
 
 
 def walk_from_model_to_root(root_model, target_model):
+    """
+    Given models A, AB(A), BB(AB), and CC(BB)
+    if root_model is A, and target_model is CC
+    return something like ('cc', 'bb', 'ab')
+    which if joined by LOOKUP_SEP would give the select_related() value.
+    """
     if not issubclass(target_model, root_model):
         raise InvalidModel("%(child)r is not a subclass of %(root)r" % {
             'child': target_model,
@@ -54,10 +60,23 @@ def generate_q_filters(lookups):
 
 
 def lookups_to_text(lookups):
+    """
+    Givne a set of elements like [
+        ('a', 'b', 'c'),
+        ('d', 'e'),
+    ]
+    return something like:
+    ('a__b__c', 'd__e')
+    """
     return tuple(LOOKUP_SEP.join(lookup) for lookup in lookups)
 
 
 def relation_string_for_model(root_model, target_model):
+    """
+    DUNNO IF I NEED THIS ...
+    Given the classes A, B(A), C(B), and D(C) passing in the root_model A and the
+    target_model C, 'b__c__d'
+    """
     lookups = discovery_lookup_from_model(root_model=root_model, target_model=target_model)
     lookups_as_strings = lookups_to_text([lookups])
     return lookups_as_strings[0]
@@ -76,6 +95,22 @@ def calculate_paths(lookups):
     result = sorted(lookups_with_intermediates_flat, key=len, reverse=True)
     returndata =  result, joins_as_strings, lookups_with_intermediates
     return returndata
+
+
+def get_startswiths(relations, prefetches):
+    """
+    given relations [u'ab__bb__cc', u'ab__bb', u'ab']
+    and prefetches [u'ab__bb__cc__fk5', u'ab__bb__cc__fk8', u'ab__bb__cc__fk3', u'ab__bb__cc__fk']
+    take the prefetches that start with any of the relations BUT substitute
+    the prefix entirely.
+    """
+    def iterable():
+        data = product(relations, prefetches)
+        for relation, prefetch in data:
+            if prefetch.startswith(relation):
+                rel_length = len(relation)
+                yield prefetch[rel_length:].lstrip('_')
+    return sorted(iterable())
 
 
 def dig_for_obj(obj, attrgetters):
@@ -148,9 +183,13 @@ class InheritingQuerySet(QuerySet):
         things = defaultdict(list)
         for thing in self._result_cache:
             things[thing.__class__].append(thing)
-        get_lookups = partial(relation_string_for_model, root_model=self.model)
+
+        function = partial(discovery_lookup_from_model, root_model=self.model)
         for klass, instances in things.items():
-            lookups = get_lookups(target_model=klass)
+            relation_distance = function(target_model=klass)
+            our_joins, joins_as_strings, all_combinations = calculate_paths(lookups=[relation_distance])
+            things2 = get_startswiths(joins_as_strings, self._prefetch_related_lookups)
+            print(things2)
             prefetch_related_objects(instances, self._prefetch_related_lookups)
         return None
 
