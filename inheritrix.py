@@ -104,13 +104,19 @@ def get_startswiths(relations, prefetches):
     take the prefetches that start with any of the relations BUT substitute
     the prefix entirely.
     """
-    def iterable():
-        data = product(relations, prefetches)
-        for relation, prefetch in data:
-            if prefetch.startswith(relation):
-                rel_length = len(relation)
-                yield prefetch[rel_length:].lstrip('_')
-    return sorted(iterable())
+    prefetches = sorted(prefetches)
+    potentials = set()
+    data = product(relations, prefetches)
+    for relation, prefetch in data:
+        fullrel = '%s%s' % (relation, LOOKUP_SEP)
+        if prefetch.startswith(relation):
+            rel_length = len(fullrel)
+            sliced_prefetch = prefetch[rel_length:]
+            if sliced_prefetch not in potentials:
+                potentials.add(sliced_prefetch)
+    result = sorted(potentials)
+    import pdb; pdb.set_trace()
+    return result
 
 
 def dig_for_obj(obj, attrgetters):
@@ -128,11 +134,13 @@ class InheritingQuerySet(QuerySet):
         super(InheritingQuerySet, self).__init__(*args, **kwargs)
         self._our_joins = []
         self._include_self = True
+        self._our_prefetches = {}
 
     def _clone(self, *args, **kwargs):
         clone = super(InheritingQuerySet, self)._clone(*args, **kwargs)
         clone._our_joins = self._our_joins[:]
         clone._include_self = self._include_self
+        clone._our_prefetches = self._our_prefetches
         return clone
 
     def select_subclasses(self, *subclasses):
@@ -175,6 +183,24 @@ class InheritingQuerySet(QuerySet):
             clone._include_self = False
         return clone
 
+    def prefetch_models(self, prefetch_dict):
+        clone = self._clone()
+        # apply extras grouped by models...
+        for key, value in prefetch_dict.items():
+            if key not in clone._our_prefetches:
+                clone._our_prefetches[key] = []
+            clone._our_prefetches[key].extend(value)
+        return clone
+
+    def _fetch_all(self):
+        if self._our_prefetches:
+            old_prefetches = self._prefetch_related_lookups
+            self._prefetch_related_lookups = set(chain.from_iterable(self._our_prefetches.values()))
+        super(InheritingQuerySet, self)._fetch_all()
+        if self._our_prefetches:
+            self._prefetch_related_lookups = old_prefetches
+
+
     def iterator(self):
         iterator = super(InheritingQuerySet, self).iterator()
         relations_for_attrgetter = tuple(x.replace(LOOKUP_SEP, '.') for x in lookups_to_text(self._our_joins))
@@ -187,13 +213,11 @@ class InheritingQuerySet(QuerySet):
         for thing in self._result_cache:
             things[thing.__class__].append(thing)
 
-        function = partial(discovery_lookup_from_model, root_model=self.model)
         for klass, instances in things.items():
-            relation_distance = function(target_model=klass)
-            our_joins, joins_as_strings, all_combinations = calculate_paths(lookups=[relation_distance])
-            things2 = get_startswiths(joins_as_strings, self._prefetch_related_lookups)
-            print(things2)
-            prefetch_related_objects(instances, self._prefetch_related_lookups)
+            prefetches = self._prefetch_related_lookups[:]
+            if klass in self._our_prefetches:
+                prefetches.extend(self._our_prefetches[klass])
+            prefetch_related_objects(instances, prefetches)
         return None
 
 

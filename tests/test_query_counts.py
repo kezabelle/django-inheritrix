@@ -209,7 +209,7 @@ class RelationQueryCounts(TestCase):
 
 
     def test_prefetch_related(self):
-        with self.assertNumQueries(39):
+        with self.assertNumQueries(45):
             fk = FK.objects.create()
             fk2 = FK2.objects.create()
             fk3 = FK3.objects.create()
@@ -226,6 +226,7 @@ class RelationQueryCounts(TestCase):
             pk_ca = CA._default_manager.create(fk4=fk4, fk2=fk2, fk6=fk6).pk
             pk_cb = CB._default_manager.create(fk4=fk4, fk2=fk2, fk7=fk7).pk
             pk_cc = CC._default_manager.create(fk3=fk3, fk5=fk5, fk8=fk8).pk
+            pk_cc2 = CC._default_manager.create(fk3=fk3, fk5=fk5, fk8=fk8).pk
 
         #
         # with self.assertNumQueries(2):
@@ -278,13 +279,18 @@ class RelationQueryCounts(TestCase):
         #     assert cb.fk4 == fk4
         #     assert cb.fk is None
 
-        with self.assertNumQueries(1):
-            prefetches = (
-            'ab__bb__cc__fk5', 'ab__bb__cc__fk8', 'ab__bb__cc__fk3',
-            'ab__bb__cc__fk')
-            cc = A.polymorphs.select_subclasses(CC).prefetch_related(*prefetches).get(pk=pk_cc)
-            assert cc.fk8 == fk8
-            assert cc.fk5 == fk5
-            assert cc.fk3 == fk3
-            assert cc.fk is None
+        with self.assertNumQueries(3):
+            prefetches = {
+                CC: ('fk5', 'fk8', 'fk3', 'fk')
+            }
+            results = list(A.polymorphs.models(BB, CC).prefetch_models(prefetches).all())
+            bb = results[0]
+            assert bb.fk5 == fk5
+            assert bb.fk3 == fk3
+            assert bb.fk is None
+            for cc in results[1:]:
+                assert cc.fk8 == fk8
+                assert cc.fk5 == fk5
+                assert cc.fk3 == fk3
+                assert cc.fk is None
 
