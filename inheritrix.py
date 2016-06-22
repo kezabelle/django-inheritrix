@@ -127,10 +127,12 @@ class InheritingQuerySet(QuerySet):
     def __init__(self, *args, **kwargs):
         super(InheritingQuerySet, self).__init__(*args, **kwargs)
         self._our_joins = []
+        self._include_self = True
 
     def _clone(self, *args, **kwargs):
         clone = super(InheritingQuerySet, self)._clone(*args, **kwargs)
         clone._our_joins = self._our_joins[:]
+        clone._include_self = self._include_self
         return clone
 
     def select_subclasses(self, *subclasses):
@@ -170,6 +172,7 @@ class InheritingQuerySet(QuerySet):
         if 'include_self' not in options or options['include_self'] is not True:
             x = generate_q_filters(lookups=all_combinations)
             clone.query.add_q(x)
+            clone._include_self = False
         return clone
 
     def iterator(self):
