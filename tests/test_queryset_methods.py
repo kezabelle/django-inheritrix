@@ -55,3 +55,35 @@ def test_complex_models_a_bunch():
     results = A.polymorphs.models(AB, include_self=True).order_by('pk')
     # we didn't ask for CC or BB, so we'll never get more than an AB.
     assert tuple(results) == (A(pk=1), A(pk=2), AB(pk=3))
+
+
+@pytest.mark.django_db
+def test_restoring_none_including_self():
+    a = A._default_manager.create()
+    aa = AA._default_manager.create()
+    ba = BA._default_manager.create()
+    results = A.polymorphs.select_related('fk').models(AA, include_self=True).models(None)
+    assert results.query.select_related == {'fk': {}}  # aa is gone ...
+
+@pytest.mark.django_db
+def test_restoring_none_excluding_self():
+    a = A._default_manager.create()
+    aa = AA._default_manager.create()
+    ba = BA._default_manager.create()
+    with pytest.raises(ValueError):
+        A.polymorphs.select_related('fk').models(AA, include_self=False).models(None)
+
+
+@pytest.mark.django_db
+def test_selecting_BA_doesnt_include_AA():
+    """
+    If not asking specifically for AA, don't get them back ...
+    """
+    a = A._default_manager.create()
+    aa = AA._default_manager.create()
+    ba = BA._default_manager.create()
+    results = list(A.polymorphs.select_subclasses(BA))
+    assert isinstance(results[0], A) is True
+    assert isinstance(results[1], A) is True
+    assert isinstance(results[1], AA) is False
+    assert isinstance(results[2], AA) is False

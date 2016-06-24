@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import
 from __future__ import unicode_literals
-from django.db.models import Model, IntegerField, ForeignKey
+from django.db.models import Model, IntegerField, ForeignKey, OneToOneField
 from django.utils.six import python_2_unicode_compatible
 from inheritrix import InheritingManager
 
@@ -58,6 +58,7 @@ class BA(AA):
 
 class BB(AB):
     v2 = IntegerField(default=2)
+    o2o = OneToOneField(FK5, null=True)
     fk5 = ForeignKey(FK5, null=True)
 
 

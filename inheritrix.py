@@ -153,19 +153,22 @@ class InheritingQuerySet(QuerySet):
         # Note: at the moment I have no idea how to unwind the Q objects I put
         # in, so the joins all still happen. Dumb.
         if models == (None,):
-            raise ValueError("Cannot unset models() calls")
+            if self._include_self is False:
+                raise ValueError("Cannot unset models() calls if "
+                                 "include_self=False was used, as it applies "
+                                 "additional SQL filtering")
             # go in depth first order.
             # this is nasty.
-            # for field in self._our_joins:
-            #     newlevel = clone.query.select_related
-            #     for part in field:
-            #         if part in newlevel:
-            #             previouslevel = newlevel
-            #             newlevel = newlevel[part]
-            #             if tuple(newlevel.keys()) == ():
-            #                 del previouslevel[part]
-            # clone._our_joins = []
-            # return clone
+            for field in self._our_joins:
+                newlevel = clone.query.select_related
+                for part in field:
+                    if part in newlevel:
+                        previouslevel = newlevel
+                        newlevel = newlevel[part]
+                        if tuple(newlevel.keys()) == ():
+                            del previouslevel[part]
+            clone._our_joins = []
+            return clone
 
         function = partial(discovery_lookup_from_model, root_model=clone.model)
         # generate tuples like: ('a', 'b', 'c')
@@ -193,24 +196,26 @@ class InheritingQuerySet(QuerySet):
         return clone
 
     def _fetch_all(self):
-        if self._our_prefetches:
-            old_prefetches = self._prefetch_related_lookups
-            self._prefetch_related_lookups = set(chain.from_iterable(self._our_prefetches.values()))
-        super(InheritingQuerySet, self)._fetch_all()
-        if self._our_prefetches:
-            self._prefetch_related_lookups = old_prefetches
+        if self._result_cache is None:
+            self._result_cache = list(self.iterator())
+        has_prefetch_relateds = len(self._prefetch_related_lookups) > 0
+        has_prefetch_models = len(self._our_prefetches) > 0
+        needs_prefetches = has_prefetch_relateds or has_prefetch_models
+        if needs_prefetches and not self._prefetch_done:
+            self._prefetch_related_objects()
 
 
     def iterator(self):
         iterator = super(InheritingQuerySet, self).iterator()
         relations_for_attrgetter = tuple(x.replace(LOOKUP_SEP, '.') for x in lookups_to_text(self._our_joins))
+        print(relations_for_attrgetter)
         attrgetters = tuple(attrgetter(x) for x in relations_for_attrgetter)
         for obj in iterator:
             yield dig_for_obj(obj=obj, attrgetters=attrgetters)
     #
     def _prefetch_related_objects(self):
         things = defaultdict(list)
-        for thing in self._result_cache:
+        for index, thing in enumerate(self._result_cache, start=0):
             things[thing.__class__].append(thing)
 
         for klass, instances in things.items():

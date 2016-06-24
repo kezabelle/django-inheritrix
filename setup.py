@@ -12,6 +12,7 @@ HERE = os.path.abspath(os.path.dirname(__file__))
 class PyTest(TestCommand):
     def initialize_options(self):
         TestCommand.initialize_options(self)
+        self.pytest_args = ['--pdb']
         self.pytest_args = []
 
     def finalize_options(self):
