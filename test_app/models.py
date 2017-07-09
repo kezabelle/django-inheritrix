@@ -1,77 +1,82 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import
 from __future__ import unicode_literals
-from django.db.models import Model, IntegerField, ForeignKey, OneToOneField
+from django.db.models import Model, IntegerField, ForeignKey, OneToOneField, \
+    ManyToManyField
 from django.utils.six import python_2_unicode_compatible
 from inheritrix import InheritingManager
 
 
-class FK(Model):
+class RelatesToJeff(Model):
     pass
 
-class FK2(Model):
+class RelatesToJeffSon(Model):
     pass
 
-class FK3(Model):
+class RelatesToJeffDaughter(Model):
     pass
 
-class FK4(Model):
+class RelatesToJeffGrandSon(Model):
     pass
 
-class FK5(Model):
+class RelatesToJeffGrandDaughter(Model):
     pass
 
-class FK6(Model):
+class RelatesToGreatGrandSon1(Model):
     pass
 
-class FK7(Model):
+class RelatesToGreatGrandSon2(Model):
     pass
 
-class FK8(Model):
+class RelatesToGreatGrandDaughter(Model):
     pass
 
+
+class RelatesToJeffMany(Model):
+    pass
 
 @python_2_unicode_compatible
-class A(Model):
+class Jeff(Model):
     v = IntegerField(default=0)
-    fk = ForeignKey(FK, null=True)
+    fk = ForeignKey(RelatesToJeff, null=True)
+    m2m = ManyToManyField(RelatesToJeffMany, null=True)
     polymorphs = InheritingManager()
 
     def __str__(self):
         return str(self.pk)
 
 
-class AA(A):
+class JeffSon(Jeff):
     v1 = IntegerField(default=1)
-    fk2 = ForeignKey(FK2, null=True)
+    fk2 = ForeignKey(RelatesToJeffSon, null=True)
 
 
-class AB(A):
+class JeffDaughter(Jeff):
     v1 = IntegerField(default=1)
-    fk3 = ForeignKey(FK3, null=True)
+    fk3 = ForeignKey(RelatesToJeffDaughter, null=True)
 
 
-class BA(AA):
+class JeffGrandSon(JeffSon):
     v2 = IntegerField(default=2)
-    fk4 = ForeignKey(FK4, null=True)
+    fk4 = ForeignKey(RelatesToJeffGrandSon, null=True)
 
 
-class BB(AB):
+class JeffGrandDaughter(JeffDaughter):
     v2 = IntegerField(default=2)
-    o2o = OneToOneField(FK5, null=True)
-    fk5 = ForeignKey(FK5, null=True)
+    o2o = OneToOneField(RelatesToJeffGrandDaughter, null=True)
+    fk5 = ForeignKey(RelatesToJeffGrandDaughter, null=True)
 
 
-class CA(BA):
+class JeffGreatGrandSon1(JeffGrandSon):
     v3 = IntegerField(default=3)
-    fk6 = ForeignKey(FK6, null=True)
+    fk6 = ForeignKey(RelatesToGreatGrandSon1, null=True)
 
 
-class CB(BA):
+class JeffGreatGrandSon2(JeffGrandSon):
     v3 = IntegerField(default=3)
-    fk7 = ForeignKey(FK7, null=True)
+    fk7 = ForeignKey(RelatesToGreatGrandSon2, null=True)
 
 
-class CC(BB):
+class JeffGreatGrandDaughter(JeffGrandDaughter):
     v3 = IntegerField(default=3)
-    fk8 = ForeignKey(FK8, null=True)
+    fk8 = ForeignKey(RelatesToGreatGrandDaughter, null=True)

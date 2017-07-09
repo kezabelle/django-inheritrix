@@ -6,70 +6,70 @@ from inheritrix import (discovery_lookup_from_model,
                         walk_from_model_to_root,
                         InvalidModel, generate_relation_combinations,
                         lookups_to_text, relation_string_for_model)
-from test_app.models import A, AA, AB, BA, BB, CA, CB, CC
+from test_app.models import Jeff, JeffSon, JeffDaughter, JeffGrandSon, JeffGrandDaughter, JeffGreatGrandSon1, JeffGreatGrandSon2, JeffGreatGrandDaughter
 
 
 def test_model_is_subclass_ok():
-    tuple(walk_from_model_to_root(A, AB))
+    tuple(walk_from_model_to_root(Jeff, JeffDaughter))
 
 
 def test_model_is_subclass_raises_error_on_invalid_model():
     class LOL(object):
         pass
     with pytest.raises(InvalidModel):
-        tuple(walk_from_model_to_root(A, LOL))
-    with pytest.raises(TypeError):
-        tuple(walk_from_model_to_root(A, LOL))
+        tuple(walk_from_model_to_root(Jeff, LOL))
+    with pytest.raises(ValueError):
+        tuple(walk_from_model_to_root(Jeff, LOL))
 
 
 def test_self():
-    with pytest.raises(InvalidModel):
-        discovery_lookup_from_model(A, A)
+    result = discovery_lookup_from_model(Jeff, Jeff)
+    assert result == ()
 
 @pytest.mark.parametrize('model,expected', [
-    (AA, ('aa',)),
-    (AB, ('ab',)),
+    (JeffSon, ('jeffson',)),
+    (JeffDaughter, ('jeffdaughter',)),
 ])
 def test_child(model, expected):
-    result = discovery_lookup_from_model(A, model)
+    result = discovery_lookup_from_model(Jeff, model)
     assert result == expected
 
 
 @pytest.mark.parametrize('model,expected', [
-    (BA, ('aa', 'ba')),
-    (BB, ('ab', 'bb')),
+    (JeffGrandSon, ('jeffson', 'jeffgrandson')),
+    (JeffGrandDaughter, ('jeffdaughter', 'jeffgranddaughter')),
 ])
 def test_grandchild(model, expected):
-    result = discovery_lookup_from_model(A, model)
+    result = discovery_lookup_from_model(Jeff, model)
     assert result == expected
 
 
 @pytest.mark.parametrize('model,expected', [
-    (CA, ('aa', 'ba', 'ca')),
-    (CB, ('aa', 'ba', 'cb')),
-    (CC, ('ab', 'bb', 'cc'))
+    (JeffGreatGrandSon1, ('jeffson', 'jeffgrandson', 'jeffgreatgrandson1')),
+    (JeffGreatGrandSon2, ('jeffson', 'jeffgrandson', 'jeffgreatgrandson2')),
+    (JeffGreatGrandDaughter, ('jeffdaughter', 'jeffgranddaughter', 'jeffgreatgranddaughter'))
 ])
 def test_great_grandchild(model, expected):
-    result = discovery_lookup_from_model(A, model)
+    result = discovery_lookup_from_model(Jeff, model)
     assert result == expected
 
 
 @pytest.mark.parametrize(['indata', 'expected'], [
     (
-        ('aa', 'ba', 'ca'),
-        (('aa',), ('aa', 'ba'), ('aa', 'ba', 'ca'))
+        ('jeffson', 'jeffgrandson', 'jeffgreatgrandson1'),
+        (('jeffson',), ('jeffson', 'jeffgrandson'), ('jeffson', 'jeffgrandson', 'jeffgreatgrandson1'))
     ),
     (
-        ('aa', 'bb', 'cc', 'dd'),
-        ((u'aa',), (u'aa', u'bb'), (u'aa', u'bb', u'cc'), (u'aa', u'bb', u'cc', u'dd'))
+        ('jeffson', 'jeffgranddaughter', 'jeffgreatgranddaughter', 'dd'),
+        (('jeffson',), ('jeffson', 'jeffgranddaughter'), ('jeffson', 'jeffgranddaughter', 'jeffgreatgranddaughter'), ('jeffson', 'jeffgranddaughter', 'jeffgreatgranddaughter', 'dd'))
     ),
     (
-        ('aa', 'bb'),
-        ((u'aa',), (u'aa', u'bb'))
+        ('jeffson', 'jeffgranddaughter'),
+        (('jeffson',), ('jeffson', 'jeffgranddaughter'))
     ),
     (
-        ('aa',),
-        ((u'aa',),)
+        ('jeffson',),
+        (('jeffson',),)
     ),
     (
         (),
@@ -81,14 +81,14 @@ def test_generate_relation_combinations(indata, expected):
 
 
 @pytest.mark.parametrize('model,expected', [
-    (AA, 'aa'),
-    (AB, 'ab'),
-    (BA, 'aa__ba'),
-    (BB, 'ab__bb'),
-    (CA, 'aa__ba__ca'),
-    (CB, 'aa__ba__cb'),
-    (CC, 'ab__bb__cc'),
+    (JeffSon, 'jeffson'),
+    (JeffDaughter, 'jeffdaughter'),
+    (JeffGrandSon, 'jeffson__jeffgrandson'),
+    (JeffGrandDaughter, 'jeffdaughter__jeffgranddaughter'),
+    (JeffGreatGrandSon1, 'jeffson__jeffgrandson__jeffgreatgrandson1'),
+    (JeffGreatGrandSon2, 'jeffson__jeffgrandson__jeffgreatgrandson2'),
+    (JeffGreatGrandDaughter, 'jeffdaughter__jeffgranddaughter__jeffgreatgranddaughter'),
 ])
 def test_relation_tuples_from_root(model, expected):
-    result = relation_string_for_model(A, model)
+    result = relation_string_for_model(Jeff, model)
     assert result == expected

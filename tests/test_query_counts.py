@@ -1,49 +1,54 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import
 from __future__ import unicode_literals
-
+from unittest import expectedFailure
 from django.db.models import Prefetch
 from django.test import TestCase
-from test_app.models import A, AA, AB, BA, BB, CA, CB, CC
-from test_app.models import FK, FK2, FK3, FK4, FK5, FK6, FK7, FK8
+
+from test_app.models import (Jeff, JeffSon, JeffDaughter, JeffGrandSon, JeffGrandDaughter, JeffGreatGrandSon1, JeffGreatGrandSon2, JeffGreatGrandDaughter)
+from test_app.models import RelatesToJeff, RelatesToJeffSon, RelatesToJeffDaughter, RelatesToJeffGrandSon, RelatesToJeffGrandDaughter, RelatesToGreatGrandSon1, RelatesToGreatGrandSon2, RelatesToGreatGrandDaughter
 
 
 class QueryCounts(TestCase):
     def test_complex_models_all_not_including_self(self):
-        models = (AA, AB, BA, BB, CA, CB, CC)
+        models = (JeffSon, JeffDaughter, JeffGrandSon, JeffGrandDaughter, JeffGreatGrandSon1, JeffGreatGrandSon2, JeffGreatGrandDaughter)
 
         with self.assertNumQueries(32):
-            A._default_manager.create()
-            FK._default_manager.create()
+            Jeff._default_manager.create()
+            RelatesToJeff._default_manager.create()
             for m in models:
                 m._default_manager.create()
 
         with self.assertNumQueries(1):
-            tuple(A.polymorphs.models(*models, include_self=False))
+            tuple(Jeff.polymorphs.models(*models, include_self=False))
 
     def test_complex_models_all_including_self(self):
-        models = (AA, AB, BA, BB, CA, CB, CC)
+        models = (JeffSon, JeffDaughter, JeffGrandSon, JeffGrandDaughter, JeffGreatGrandSon1, JeffGreatGrandSon2, JeffGreatGrandDaughter)
 
         with self.assertNumQueries(32):
-            A._default_manager.create()
-            FK._default_manager.create()
+            Jeff._default_manager.create()
+            RelatesToJeff._default_manager.create()
             for m in models:
                 m._default_manager.create()
 
         with self.assertNumQueries(1):
-            tuple(A.polymorphs.models(*models, include_self=True))
+            tuple(Jeff.polymorphs.models(*models, include_self=True))
 
-    def test_resetting(self):
-        models = (AA, AB, BA, BB, CA, CB, CC)
+    def test_selecting_just_me_does_the_right_thing(self):
+        models = (Jeff,)
 
-        with self.assertNumQueries(32):
-            A._default_manager.create()
-            FK._default_manager.create()
+        with self.assertNumQueries(3):
+            Jeff._default_manager.create()
+            RelatesToJeff._default_manager.create()
             for m in models:
                 m._default_manager.create()
 
-        with self.assertRaises(ValueError):
-            tuple(A.polymorphs.select_related('fk').models(*models, include_self=False).models(None))
+        with self.assertNumQueries(1):
+            x = tuple(Jeff.polymorphs.models(include_self=True))
+        self.assertEqual([
+            Jeff(pk=1),
+            Jeff(pk=2),
+            ], list(x))
 
 
 class SanityChecksTestCase(TestCase):
@@ -52,78 +57,78 @@ class SanityChecksTestCase(TestCase):
         proving to myself how prefetching from the grandchild works.
         """
         with self.assertNumQueries(9):
-            fk3 = FK3.objects.create()
-            fk8 = FK8.objects.create()
-            fk5 = FK5.objects.create()
-            out = CC._default_manager.create(fk3=fk3, fk5=fk5, fk8=fk8, fk=None)
+            fk3 = RelatesToJeffDaughter.objects.create()
+            fk8 = RelatesToGreatGrandDaughter.objects.create()
+            fk5 = RelatesToJeffGrandDaughter.objects.create()
+            out = JeffGreatGrandDaughter._default_manager.create(fk3=fk3, fk5=fk5, fk8=fk8, fk=None)
         # 1 CC query + 1 each for fk3,fk5,fk8
         with self.assertNumQueries(4):
-            list(CC.objects.prefetch_related('fk3', 'fk5', 'fk8').filter(pk=out))
+            list(JeffGreatGrandDaughter.objects.prefetch_related('fk3', 'fk5', 'fk8').filter(pk=out))
 
 
 class RelationQueryCounts(TestCase):
     def test_not_doing_any_prefetching_related_via_children(self):
         with self.assertNumQueries(39):
-            fk = FK.objects.create()
-            fk2 = FK2.objects.create()
-            fk3 = FK3.objects.create()
-            fk4 = FK4.objects.create()
-            fk5 = FK5.objects.create()
-            fk6 = FK6.objects.create()
-            fk7 = FK7.objects.create()
-            fk8 = FK8.objects.create()
-            pk_a = A._default_manager.create(fk=fk).pk
-            pk_aa = AA._default_manager.create(fk2=fk2).pk
-            pk_ab = AB._default_manager.create(fk=fk, fk3=fk3).pk
-            pk_ba = BA._default_manager.create(fk2=fk2, fk4=fk4).pk
-            pk_bb = BB._default_manager.create(fk3=fk3, fk5=fk5).pk
-            pk_ca = CA._default_manager.create(fk4=fk4, fk2=fk2, fk6=fk6).pk
-            pk_cb = CB._default_manager.create(fk4=fk4, fk2=fk2, fk7=fk7).pk
-            pk_cc = CC._default_manager.create(fk3=fk3, fk5=fk5, fk8=fk8).pk
+            fk = RelatesToJeff.objects.create()
+            fk2 = RelatesToJeffSon.objects.create()
+            fk3 = RelatesToJeffDaughter.objects.create()
+            fk4 = RelatesToJeffGrandSon.objects.create()
+            fk5 = RelatesToJeffGrandDaughter.objects.create()
+            fk6 = RelatesToGreatGrandSon1.objects.create()
+            fk7 = RelatesToGreatGrandSon2.objects.create()
+            fk8 = RelatesToGreatGrandDaughter.objects.create()
+            pk_a = Jeff._default_manager.create(fk=fk).pk
+            pk_aa = JeffSon._default_manager.create(fk2=fk2).pk
+            pk_ab = JeffDaughter._default_manager.create(fk=fk, fk3=fk3).pk
+            pk_ba = JeffGrandSon._default_manager.create(fk2=fk2, fk4=fk4).pk
+            pk_bb = JeffGrandDaughter._default_manager.create(fk3=fk3, fk5=fk5).pk
+            pk_ca = JeffGreatGrandSon1._default_manager.create(fk4=fk4, fk2=fk2, fk6=fk6).pk
+            pk_cb = JeffGreatGrandSon2._default_manager.create(fk4=fk4, fk2=fk2, fk7=fk7).pk
+            pk_cc = JeffGreatGrandDaughter._default_manager.create(fk3=fk3, fk5=fk5, fk8=fk8).pk
 
 
         with self.assertNumQueries(2):
-            a = A._default_manager.get(pk=pk_a)
+            a = Jeff._default_manager.get(pk=pk_a)
             assert a.fk == fk
 
         with self.assertNumQueries(2):
-            aa = AA._default_manager.get(pk=pk_aa)
+            aa = JeffSon._default_manager.get(pk=pk_aa)
             assert aa.fk2 == fk2
             assert aa.fk is None
 
         with self.assertNumQueries(3):
-            ab = AB._default_manager.get(pk=pk_ab)
+            ab = JeffDaughter._default_manager.get(pk=pk_ab)
             assert ab.fk3 == fk3
             assert ab.fk == fk
 
         with self.assertNumQueries(3):
-            ba = BA._default_manager.get(pk=pk_ba)
+            ba = JeffGrandSon._default_manager.get(pk=pk_ba)
             assert ba.fk4 == fk4
             assert ba.fk2 == fk2
             assert ba.fk is None
 
         with self.assertNumQueries(3):
-            bb = BB._default_manager.get(pk=pk_bb)
+            bb = JeffGrandDaughter._default_manager.get(pk=pk_bb)
             assert bb.fk5 == fk5
             assert bb.fk3 == fk3
             assert bb.fk is None
 
         with self.assertNumQueries(4):
-            ca = CA._default_manager.get(pk=pk_ca)
+            ca = JeffGreatGrandSon1._default_manager.get(pk=pk_ca)
             assert ca.fk6 == fk6
             assert ca.fk2 == fk2
             assert ca.fk4 == fk4
             assert ca.fk is None
 
         with self.assertNumQueries(4):
-            cb = CB._default_manager.get(pk=pk_cb)
+            cb = JeffGreatGrandSon2._default_manager.get(pk=pk_cb)
             assert cb.fk7 == fk7
             assert cb.fk2 == fk2
             assert cb.fk4 == fk4
             assert cb.fk is None
 
         with self.assertNumQueries(4):
-            cc = CC._default_manager.get(pk=pk_cc)
+            cc = JeffGreatGrandDaughter._default_manager.get(pk=pk_cc)
             assert cc.fk8 == fk8
             assert cc.fk5 == fk5
             assert cc.fk3 == fk3
@@ -131,59 +136,59 @@ class RelationQueryCounts(TestCase):
 
     def test_select_related_is_unaffected(self):
         with self.assertNumQueries(39):
-            fk = FK.objects.create()
-            fk2 = FK2.objects.create()
-            fk3 = FK3.objects.create()
-            fk4 = FK4.objects.create()
-            fk5 = FK5.objects.create()
-            fk6 = FK6.objects.create()
-            fk7 = FK7.objects.create()
-            fk8 = FK8.objects.create()
-            pk_a = A._default_manager.create(fk=fk).pk
-            pk_aa = AA._default_manager.create(fk2=fk2).pk
-            pk_ab = AB._default_manager.create(fk=fk, fk3=fk3).pk
-            pk_ba = BA._default_manager.create(fk2=fk2, fk4=fk4).pk
-            pk_bb = BB._default_manager.create(fk3=fk3, fk5=fk5).pk
-            pk_ca = CA._default_manager.create(fk4=fk4, fk2=fk2, fk6=fk6).pk
-            pk_cb = CB._default_manager.create(fk4=fk4, fk2=fk2, fk7=fk7).pk
-            pk_cc = CC._default_manager.create(fk3=fk3, fk5=fk5, fk8=fk8).pk
+            fk = RelatesToJeff.objects.create()
+            fk2 = RelatesToJeffSon.objects.create()
+            fk3 = RelatesToJeffDaughter.objects.create()
+            fk4 = RelatesToJeffGrandSon.objects.create()
+            fk5 = RelatesToJeffGrandDaughter.objects.create()
+            fk6 = RelatesToGreatGrandSon1.objects.create()
+            fk7 = RelatesToGreatGrandSon2.objects.create()
+            fk8 = RelatesToGreatGrandDaughter.objects.create()
+            pk_a = Jeff._default_manager.create(fk=fk).pk
+            pk_aa = JeffSon._default_manager.create(fk2=fk2).pk
+            pk_ab = JeffDaughter._default_manager.create(fk=fk, fk3=fk3).pk
+            pk_ba = JeffGrandSon._default_manager.create(fk2=fk2, fk4=fk4).pk
+            pk_bb = JeffGrandDaughter._default_manager.create(fk3=fk3, fk5=fk5).pk
+            pk_ca = JeffGreatGrandSon1._default_manager.create(fk4=fk4, fk2=fk2, fk6=fk6).pk
+            pk_cb = JeffGreatGrandSon2._default_manager.create(fk4=fk4, fk2=fk2, fk7=fk7).pk
+            pk_cc = JeffGreatGrandDaughter._default_manager.create(fk3=fk3, fk5=fk5, fk8=fk8).pk
 
 
         with self.assertNumQueries(1):
-            a = A.polymorphs.select_related('fk').get(pk=pk_a)
+            a = Jeff.polymorphs.select_related('fk').get(pk=pk_a)
             assert a.fk == fk
 
         with self.assertNumQueries(1):
-            prefetches = ('aa__fk2', 'aa__fk')
-            aa = A.polymorphs.select_subclasses(AA).select_related(*prefetches).get(pk=pk_aa)
+            prefetches = ('jeffson__fk2', 'jeffson__fk')
+            aa = Jeff.polymorphs.select_subclasses(JeffSon).select_related(*prefetches).get(pk=pk_aa)
             assert aa.fk2 == fk2
             assert aa.fk is None
 
         with self.assertNumQueries(1):
-            prefetches = ('ab__fk3', 'ab__fk')
-            ab = A.polymorphs.select_subclasses(AB).select_related(*prefetches).get(pk=pk_ab)
+            prefetches = ('jeffdaughter__fk3', 'jeffdaughter__fk')
+            ab = Jeff.polymorphs.select_subclasses(JeffDaughter).select_related(*prefetches).get(pk=pk_ab)
             assert ab.fk3 == fk3
             assert ab.fk == fk
 
         with self.assertNumQueries(1):
-            prefetches = ('aa__ba__fk4', 'aa__ba__fk2', 'aa__ba__fk')
-            ba = A.polymorphs.select_subclasses(BA).select_related(*prefetches).get(pk=pk_ba)
+            prefetches = ('jeffson__jeffgrandson__fk4', 'jeffson__jeffgrandson__fk2', 'jeffson__jeffgrandson__fk')
+            ba = Jeff.polymorphs.select_subclasses(JeffGrandSon).select_related(*prefetches).get(pk=pk_ba)
             assert ba.fk4 == fk4
             assert ba.fk2 == fk2
             assert ba.fk is None
 
         with self.assertNumQueries(1):
-            prefetches = ('ab__bb__fk5', 'ab__bb__fk3', 'ab__bb__fk')
-            bb = A.polymorphs.select_subclasses(BB).select_related(*prefetches).get(pk=pk_bb)
+            prefetches = ('jeffdaughter__jeffgranddaughter__fk5', 'jeffdaughter__jeffgranddaughter__fk3', 'jeffdaughter__jeffgranddaughter__fk')
+            bb = Jeff.polymorphs.select_subclasses(JeffGrandDaughter).select_related(*prefetches).get(pk=pk_bb)
             assert bb.fk5 == fk5
             assert bb.fk3 == fk3
             assert bb.fk is None
 
         with self.assertNumQueries(1):
             prefetches = (
-            'aa__ba__ca__fk6', 'aa__ba__ca__fk2', 'aa__ba__ca__fk4',
-            'aa__ba__ca__fk')
-            ca = A.polymorphs.select_subclasses(CA).select_related(*prefetches).get(pk=pk_ca)
+            'jeffson__jeffgrandson__jeffgreatgrandson1__fk6', 'jeffson__jeffgrandson__jeffgreatgrandson1__fk2', 'jeffson__jeffgrandson__jeffgreatgrandson1__fk4',
+            'jeffson__jeffgrandson__jeffgreatgrandson1__fk')
+            ca = Jeff.polymorphs.select_subclasses(JeffGreatGrandSon1).select_related(*prefetches).get(pk=pk_ca)
             assert ca.fk6 == fk6
             assert ca.fk2 == fk2
             assert ca.fk4 == fk4
@@ -191,9 +196,9 @@ class RelationQueryCounts(TestCase):
 
         with self.assertNumQueries(1):
             prefetches = (
-            'aa__ba__cb__fk7', 'aa__ba__cb__fk2', 'aa__ba__cb__fk4',
-            'aa__ba__cb__fk')
-            cb = A.polymorphs.select_subclasses(CB).select_related(*prefetches).get(pk=pk_cb)
+            'jeffson__jeffgrandson__jeffgreatgrandson2__fk7', 'jeffson__jeffgrandson__jeffgreatgrandson2__fk2', 'jeffson__jeffgrandson__jeffgreatgrandson2__fk4',
+            'jeffson__jeffgrandson__jeffgreatgrandson2__fk')
+            cb = Jeff.polymorphs.select_subclasses(JeffGreatGrandSon2).select_related(*prefetches).get(pk=pk_cb)
             assert cb.fk7 == fk7
             assert cb.fk2 == fk2
             assert cb.fk4 == fk4
@@ -201,47 +206,63 @@ class RelationQueryCounts(TestCase):
 
         with self.assertNumQueries(1):
             prefetches = (
-            'ab__bb__cc__fk5', 'ab__bb__cc__fk8', 'ab__bb__cc__fk3',
-            'ab__bb__cc__fk')
-            cc = A.polymorphs.select_subclasses(CC).select_related(*prefetches).get(pk=pk_cc)
+            'jeffdaughter__jeffgranddaughter__jeffgreatgranddaughter__fk5', 'jeffdaughter__jeffgranddaughter__jeffgreatgranddaughter__fk8', 'jeffdaughter__jeffgranddaughter__jeffgreatgranddaughter__fk3',
+            'jeffdaughter__jeffgranddaughter__jeffgreatgranddaughter__fk')
+            cc = Jeff.polymorphs.select_subclasses(JeffGreatGrandDaughter).select_related(*prefetches).get(pk=pk_cc)
             assert cc.fk8 == fk8
             assert cc.fk5 == fk5
             assert cc.fk3 == fk3
             assert cc.fk is None
 
 
+    def test_copies_down_to_lowest(self):
+        with self.assertNumQueries(9):
+            fk = RelatesToJeff.objects.create()
+            fk2 = RelatesToJeffSon.objects.create()
+            root = Jeff._default_manager.create(fk=fk)
+            child = JeffGreatGrandSon1._default_manager.create(fk=fk, fk2=fk2)
+        with self.assertNumQueries(2):
+            only = Jeff.polymorphs.models(JeffGreatGrandSon1).prefetch_related('m2m').select_related('fk')[0]
+            matches = only.m2m
+            self.assertEqual(set(matches.all()), set())
+            self.assertEqual(only.fk, fk)
+        self.assertIsInstance(only, JeffSon)
+        self.assertIsInstance(only, JeffGreatGrandSon1)
+
+
+    @expectedFailure
     def test_prefetch_related(self):
         """
         one query for all A children, then 1 each for each of the FKs.
         """
         with self.assertNumQueries(45):
-            fk = FK.objects.create()
-            fk2 = FK2.objects.create()
-            fk3 = FK3.objects.create()
-            fk4 = FK4.objects.create()
-            fk5 = FK5.objects.create()
-            fk6 = FK6.objects.create()
-            fk7 = FK7.objects.create()
-            fk8 = FK8.objects.create()
-            pk_a = A._default_manager.create(fk=fk).pk
-            pk_aa = AA._default_manager.create(fk2=fk2).pk
-            pk_ab = AB._default_manager.create(fk=fk, fk3=fk3).pk
-            pk_ba = BA._default_manager.create(fk2=fk2, fk4=fk4).pk
-            pk_bb = BB._default_manager.create(fk3=fk3, fk5=fk5).pk
-            pk_ca = CA._default_manager.create(fk4=fk4, fk2=fk2, fk6=fk6).pk
-            pk_cb = CB._default_manager.create(fk4=fk4, fk2=fk2, fk7=fk7).pk
-            pk_cc = CC._default_manager.create(fk3=fk3, fk5=fk5, fk8=fk8).pk
-            pk_cc2 = CC._default_manager.create(fk3=fk3, fk5=fk5, fk8=fk8).pk
+            fk = RelatesToJeff.objects.create()
+            fk2 = RelatesToJeffSon.objects.create()
+            fk3 = RelatesToJeffDaughter.objects.create()
+            fk4 = RelatesToJeffGrandSon.objects.create()
+            fk5 = RelatesToJeffGrandDaughter.objects.create()
+            fk6 = RelatesToGreatGrandSon1.objects.create()
+            fk7 = RelatesToGreatGrandSon2.objects.create()
+            fk8 = RelatesToGreatGrandDaughter.objects.create()
+            pk_a = Jeff._default_manager.create(fk=fk).pk
+            pk_aa = JeffSon._default_manager.create(fk2=fk2).pk
+            pk_ab = JeffDaughter._default_manager.create(fk=fk, fk3=fk3).pk
+            pk_ba = JeffGrandSon._default_manager.create(fk2=fk2, fk4=fk4).pk
+            pk_bb = JeffGrandDaughter._default_manager.create(fk3=fk3, fk5=fk5).pk
+            pk_ca = JeffGreatGrandSon1._default_manager.create(fk4=fk4, fk2=fk2, fk6=fk6).pk
+            pk_cb = JeffGreatGrandSon2._default_manager.create(fk4=fk4, fk2=fk2, fk7=fk7).pk
+            pk_cc = JeffGreatGrandDaughter._default_manager.create(fk3=fk3, fk5=fk5, fk8=fk8).pk
+            pk_cc2 = JeffGreatGrandDaughter._default_manager.create(fk3=fk3, fk5=fk5, fk8=fk8).pk
 
         with self.assertNumQueries(2):
-            a = A.polymorphs.get(pk=pk_a)
+            a = Jeff.polymorphs.get(pk=pk_a)
             assert a.fk == fk
 
         with self.assertNumQueries(3):
             prefetches = {
-                AA: ('fk2', 'fk'),
+                JeffSon: ('fk2', 'fk'),
             }
-            results = list(A.polymorphs.select_subclasses(AA).prefetch_models(prefetches).all())
+            results = list(Jeff.polymorphs.select_subclasses(JeffSon).prefetch_models(prefetches).all())
             the_aas = results[1], results[3], results[5], results[6]
             for aa in the_aas:
                 assert aa.fk2 == fk2
@@ -249,9 +270,9 @@ class RelationQueryCounts(TestCase):
 
         with self.assertNumQueries(3):
             prefetches = {
-                AB: ('fk3', 'fk'),
+                JeffDaughter: ('fk3', 'fk'),
             }
-            results = list(A.polymorphs.select_subclasses(AB).prefetch_models(prefetches).all())
+            results = list(Jeff.polymorphs.select_subclasses(JeffDaughter).prefetch_models(prefetches).all())
             ab = results[2]
             assert ab.fk3 == fk3
             assert ab.fk == fk
@@ -262,27 +283,27 @@ class RelationQueryCounts(TestCase):
 
         with self.assertNumQueries(4):
             prefetches = {
-                BA: ('fk4', 'fk2', 'fk'),
+                JeffGrandSon: ('fk4', 'fk2', 'fk'),
             }
-            ba = A.polymorphs.select_subclasses(BA).prefetch_models(prefetches).get(pk=pk_ba)
+            ba = Jeff.polymorphs.select_subclasses(JeffGrandSon).prefetch_models(prefetches).get(pk=pk_ba)
             assert ba.fk4 == fk4
             assert ba.fk2 == fk2
             assert ba.fk is None
         #
         with self.assertNumQueries(4):
             prefetches = {
-                BB: ('fk5', 'fk3', 'fk'),
+                JeffGrandDaughter: ('fk5', 'fk3', 'fk'),
             }
-            bb = A.polymorphs.select_subclasses(BB).prefetch_models(prefetches).get(pk=pk_bb)
+            bb = Jeff.polymorphs.select_subclasses(JeffGrandDaughter).prefetch_models(prefetches).get(pk=pk_bb)
             assert bb.fk5 == fk5
             assert bb.fk3 == fk3
             assert bb.fk is None
 
         with self.assertNumQueries(5):
             prefetches = {
-                CA: ('fk6', 'fk2', 'fk4', 'fk'),
+                JeffGreatGrandSon1: ('fk6', 'fk2', 'fk4', 'fk'),
             }
-            ca = A.polymorphs.select_subclasses(CA).prefetch_models(prefetches).get(pk=pk_ca)
+            ca = Jeff.polymorphs.select_subclasses(JeffGreatGrandSon1).prefetch_models(prefetches).get(pk=pk_ca)
             assert ca.fk6 == fk6
             assert ca.fk2 == fk2
             assert ca.fk4 == fk4
@@ -290,21 +311,21 @@ class RelationQueryCounts(TestCase):
 
         with self.assertNumQueries(5):
             prefetches = {
-                CB: ('fk7', 'fk2', 'fk4', 'fk'),
+                JeffGreatGrandSon2: ('fk7', 'fk2', 'fk4', 'fk'),
             }
-            cb = A.polymorphs.select_subclasses(CB).prefetch_models(prefetches).get(pk=pk_cb)
+            cb = Jeff.polymorphs.select_subclasses(JeffGreatGrandSon2).prefetch_models(prefetches).get(pk=pk_cb)
             assert cb.fk7 == fk7
             assert cb.fk2 == fk2
             assert cb.fk4 == fk4
             assert cb.fk is None
 
         with self.assertNumQueries(8):
-            a_prefetch = Prefetch('fk8', FK8.objects.all())
+            a_prefetch = Prefetch('fk8', RelatesToGreatGrandDaughter.objects.all())
             prefetches = {
-                CC: ('fk5', a_prefetch, 'fk3', 'fk'),
-                BB: ('fk5', 'fk3'),
+                JeffGreatGrandDaughter: ('fk5', a_prefetch, 'fk3', 'fk'),
+                JeffGrandDaughter: ('fk5', 'fk3'),
             }
-            results = list(A.polymorphs.models(BB, CC).prefetch_related('fk').prefetch_models(prefetches).all())
+            results = list(Jeff.polymorphs.models(JeffGrandDaughter, JeffGreatGrandDaughter).prefetch_related('fk').prefetch_models(prefetches).all())
             bb = results[0]
             assert bb.fk5 == fk5
             assert bb.fk3 == fk3
