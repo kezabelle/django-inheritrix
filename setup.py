@@ -53,11 +53,12 @@ setup(
         'Django>=1.8',
     ],
     tests_require=[
-        'Django>=1.8',
+        'Django>=1.9',
         "model-mommy>=1.2.2",
         'pytest>=2.6.4',
         'pytest-cov>=1.8.1',
         'pytest-django>=2.8.0',
+        'pytest-pythonpath>=0.7.1',
         'pytest-remove-stale-bytecode>=1.0',
     ],
     cmdclass={'test': PyTest},

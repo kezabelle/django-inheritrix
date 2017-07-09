@@ -4,11 +4,15 @@ from itertools import chain, product
 from operator import attrgetter, or_, and_
 from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import QuerySet, Manager, Q
-from django.db.models.query import prefetch_related_objects
+from django.db.models.query import prefetch_related_objects, ModelIterable
 from django.db.models.constants import LOOKUP_SEP
+try:
+    from six.moves import range, reduce
+except ImportError:
+    from django.utils.six.moves import range, reduce
 
 
-class InvalidModel(TypeError):
+class InvalidModel(ValueError):
     pass
 
 
@@ -24,15 +28,20 @@ def walk_from_model_to_root(root_model, target_model):
             'child': target_model,
             'root': root_model
         })
-    if root_model is target_model:
-        raise InvalidModel("%(child)r is the same as %(root)r" % {
-            'child': target_model,
-            'root': root_model
-        })
+    # if root_model is target_model:
+    #     import pdb; pdb.set_trace()
+    #     raise InvalidModel("%(child)r is the same as %(root)r" % {
+    #         'child': target_model,
+    #         'root': root_model
+    #     })
     parent_link = target_model._meta.get_ancestor_link(root_model)
     while parent_link is not None:
-        yield parent_link.related.get_accessor_name()
-        parent_model = parent_link.related.model
+        # >= 1.10
+        rel = getattr(parent_link, 'rel', None)
+        if rel is None:
+            rel = getattr(parent_link, 'related', None)
+        yield rel.get_accessor_name()
+        parent_model = rel.model
         parent_link = parent_model._meta.get_ancestor_link(root_model)
 
 
@@ -45,19 +54,26 @@ def discovery_lookup_from_model(root_model, target_model):
 
 def generate_relation_combinations(lookup_parts):
     length = len(lookup_parts) + 1
-    return tuple(lookup_parts[0:n] for n in xrange(1, length))
+    return tuple(lookup_parts[0:n] for n in range(1, length))
 
 
-def generate_q_filters(lookups):
-    def yielder(lookups):
-        for lookupset in lookups:
-            q_objs = tuple(Q(**{'%s__isnull' % LOOKUP_SEP.join(part): False})
-                           for part in lookupset)
-            q_objs2 = reduce(and_, q_objs)
-            yield q_objs2
-    out = reduce(or_, yielder(lookups=lookups))
+def _generate_q_filters(lookups, isnull, operator):
+    def yielder(_lookups):
+        for lookupset in _lookups:
+            if lookupset:
+                q_objs = tuple(Q(**{'%s__isnull' % LOOKUP_SEP.join(part): isnull})
+                               for part in lookupset)
+                q_objs2 = reduce(and_, q_objs)
+                yield q_objs2
+    out = reduce(operator, yielder(_lookups=lookups))
     return out
 
+def generate_q_filters(lookups):
+    return _generate_q_filters(lookups, isnull=False, operator=or_)
+
+
+def generate_basemodel_q_filters(lookups):
+    return _generate_q_filters(lookups, isnull=True, operator=and_)
 
 def lookups_to_text(lookups):
     """
@@ -93,7 +109,7 @@ def calculate_paths(lookups):
     lookups_with_intermediates_flat = set(chain.from_iterable(lookups_with_intermediates))
     joins_as_strings = lookups_to_text(lookups=lookups_with_intermediates_flat)
     result = sorted(lookups_with_intermediates_flat, key=len, reverse=True)
-    returndata =  result, joins_as_strings, lookups_with_intermediates
+    returndata = result, joins_as_strings, lookups_with_intermediates
     return returndata
 
 
@@ -115,7 +131,6 @@ def get_startswiths(relations, prefetches):
             if sliced_prefetch not in potentials:
                 potentials.add(sliced_prefetch)
     result = sorted(potentials)
-    import pdb; pdb.set_trace()
     return result
 
 
@@ -128,51 +143,77 @@ def dig_for_obj(obj, attrgetters):
     return obj
 
 
+class InheritingModelIterable(ModelIterable):
+    def __iter__(self):
+        queryset = self.queryset  # type: django.db.models.query.QuerySet
+        query = queryset.query  # type: django.db.models.sql.query.Query
+        relations_for_attrgetter = tuple(x.replace(LOOKUP_SEP, '.') for x in lookups_to_text(queryset._our_joins))
+        attrgetters = tuple(attrgetter(x) for x in relations_for_attrgetter)
+        for obj in super(InheritingModelIterable, self).__iter__():
+            subobj = dig_for_obj(obj=obj, attrgetters=attrgetters)
+            # having got the deepest object, apply any annotations which were
+            # on the root version of the object.
+            if query.annotations:
+                for k in query.annotations.keys():
+                    rootval = getattr(obj, k)
+                    setattr(subobj, k, rootval)
+            if query.extra_select:
+                for k in query.extra_select.keys():
+                    rootval = getattr(obj, k)
+                    setattr(subobj, k, rootval)
+            # if query.select_related:
+            #     import pdb; pdb.set_trace()
+            #     for k in query.select_related.keys():
+            #         if k not in set(chain(queryset._our_joins)):
+            #             print(k)
+            #             rootval = getattr(obj, k)
+            #             setattr(subobj, k, rootval)
+            yield subobj
+
+
+
 class InheritingQuerySet(QuerySet):
 
     def __init__(self, *args, **kwargs):
         super(InheritingQuerySet, self).__init__(*args, **kwargs)
         self._our_joins = []
-        self._include_self = True
+        self._subclasses = set()
         self._our_prefetches = {}
+        self._iterable_class = InheritingModelIterable
 
     def _clone(self, *args, **kwargs):
         clone = super(InheritingQuerySet, self)._clone(*args, **kwargs)
         clone._our_joins = self._our_joins[:]
-        clone._include_self = self._include_self
+        clone._subclasses = set(self._subclasses)
         clone._our_prefetches = self._our_prefetches
         return clone
 
     def select_subclasses(self, *subclasses):
+        if subclasses == ():
+            def get_subclasses(cls):
+                for subclass in cls.__subclasses__():
+                    yield subclass
+                    for subsubclass in get_subclasses(subclass):
+                        yield subsubclass
+            subclasses = set(get_subclasses(self.model))
         # Support the single API call equivalent from model-utils
         return self.models(*subclasses, include_self=True)
 
     def models(self, *models, **options):
         clone = self._clone()
-        # if at all possible, remove anything *I* added to select_related.
-        # Note: at the moment I have no idea how to unwind the Q objects I put
-        # in, so the joins all still happen. Dumb.
-        if models == (None,):
-            if self._include_self is False:
-                raise ValueError("Cannot unset models() calls if "
-                                 "include_self=False was used, as it applies "
-                                 "additional SQL filtering")
-            # go in depth first order.
-            # this is nasty.
-            for field in self._our_joins:
-                newlevel = clone.query.select_related
-                for part in field:
-                    if part in newlevel:
-                        previouslevel = newlevel
-                        newlevel = newlevel[part]
-                        if tuple(newlevel.keys()) == ():
-                            del previouslevel[part]
-            clone._our_joins = []
-            return clone
+        if 'include_self' in options and options['include_self'] is True and clone.model not in models:
+            models += (clone.model,)
+        models = set(models)
+        overlap = clone._subclasses & models
+        allow_overlap = 'strict' in options and options['strict'] is True
+        if (overlap and not allow_overlap):
+            overlaps = ", ".join(repr(x) for x in overlap)
+            raise InvalidModel("The following models have already been selected, {!s}".format(overlaps))
+        clone._subclasses |= models
 
         function = partial(discovery_lookup_from_model, root_model=clone.model)
         # generate tuples like: ('a', 'b', 'c')
-        lookups = tuple(set(function(target_model=model) for model in models))
+        lookups = tuple(set(function(target_model=model) for model in clone._subclasses))
         # the decision maker
         our_joins, joins_as_strings, all_combinations = calculate_paths(lookups=lookups)
         clone._our_joins = our_joins
@@ -180,10 +221,11 @@ class InheritingQuerySet(QuerySet):
         clone.query.add_select_related(joins_as_strings)
         # To avoid returning instances without children, we need to do a filter,
         # ensuring the children are isnull=False
-        if 'include_self' not in options or options['include_self'] is not True:
+        if any(len(combo) > 0 for combo in all_combinations):
             x = generate_q_filters(lookups=all_combinations)
+            if self.model in clone._subclasses:
+                x = x | generate_basemodel_q_filters(lookups=all_combinations)
             clone.query.add_q(x)
-            clone._include_self = False
         return clone
 
     def prefetch_models(self, prefetch_dict):
@@ -194,36 +236,28 @@ class InheritingQuerySet(QuerySet):
                 clone._our_prefetches[key] = []
             clone._our_prefetches[key].extend(value)
         return clone
-
-    def _fetch_all(self):
-        if self._result_cache is None:
-            self._result_cache = list(self.iterator())
-        has_prefetch_relateds = len(self._prefetch_related_lookups) > 0
-        has_prefetch_models = len(self._our_prefetches) > 0
-        needs_prefetches = has_prefetch_relateds or has_prefetch_models
-        if needs_prefetches and not self._prefetch_done:
-            self._prefetch_related_objects()
-
-
-    def iterator(self):
-        iterator = super(InheritingQuerySet, self).iterator()
-        relations_for_attrgetter = tuple(x.replace(LOOKUP_SEP, '.') for x in lookups_to_text(self._our_joins))
-        print(relations_for_attrgetter)
-        attrgetters = tuple(attrgetter(x) for x in relations_for_attrgetter)
-        for obj in iterator:
-            yield dig_for_obj(obj=obj, attrgetters=attrgetters)
     #
-    def _prefetch_related_objects(self):
-        things = defaultdict(list)
-        for index, thing in enumerate(self._result_cache, start=0):
-            things[thing.__class__].append(thing)
+    # def _fetch_all(self):
+    #     if self._result_cache is None:
+    #         self._result_cache = list(self.iterator())
+    #     has_prefetch_relateds = len(self._prefetch_related_lookups) > 0
+    #     has_prefetch_models = len(self._our_prefetches) > 0
+    #     needs_prefetches = has_prefetch_relateds or has_prefetch_models
+    #     if needs_prefetches and not self._prefetch_done:
+    #         self._prefetch_related_objects()
 
-        for klass, instances in things.items():
-            prefetches = self._prefetch_related_lookups[:]
-            if klass in self._our_prefetches:
-                prefetches.extend(self._our_prefetches[klass])
-            prefetch_related_objects(instances, prefetches)
-        return None
+    # def _prefetch_related_objects(self):
+    #     things = defaultdict(list)
+    #     for index, thing in enumerate(self._result_cache, start=0):
+    #         things[thing.__class__].append(thing)
+    #
+    #     for klass, instances in things.items():
+    #         prefetches = list(self._prefetch_related_lookups[:])
+    #         if klass in self._our_prefetches:
+    #             prefetches.extend(self._our_prefetches[klass])
+    #         prefetches = tuple(prefetches)
+    #         prefetch_related_objects(instances, prefetches)
+    #     return None
 
 
 InheritingManager = Manager.from_queryset(InheritingQuerySet)

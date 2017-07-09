@@ -20,8 +20,8 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.staticfiles',
     'django.contrib.auth',
-    'django.contrib.admin',
     'test_app',
+    'test_app2',
 ]
 
 SKIP_SOUTH_TESTS = True
